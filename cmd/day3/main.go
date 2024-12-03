@@ -33,9 +33,7 @@ func (s Stack) Print() {
 	fmt.Printf("%v\n", s)
 }
 
-var pattern = regexp.MustCompile(`(mul|\(|\)|\d+|,){1}`)
-
-func tokenize(s string) []string {
+func tokenize(s string, pattern *regexp.Regexp) []string {
 	split := func(data []byte, atEOF bool) (advance int, token []byte, err error) {
 		loc := pattern.FindIndex(data)
 		if loc == nil {
@@ -57,7 +55,7 @@ func tokenize(s string) []string {
 	return result
 }
 
-var ops = []string{"mul"}
+var ops = []string{"mul", "do", "don't"}
 
 type Op = struct {
 	op string
@@ -74,8 +72,16 @@ func parse(tokens []string, ops *Stack) *Stack {
 		return parse(tokens[1:], ops)
 	} else {
 		ops.Push(*op)
-		return parse(tokens[6:], ops)
+		if isConditional(op.op) {
+			return parse(tokens[2:], ops)
+		} else {
+			return parse(tokens[6:], ops)
+		}
 	}
+}
+
+func isConditional(op string) bool {
+	return op == "do" || op == "don't"
 }
 
 func parseOp(tokens []string) (*Op, error) {
@@ -86,16 +92,23 @@ func parseOp(tokens []string) (*Op, error) {
 	if tokens[1] != "(" {
 		return nil, errors.New("invalid op: no open paren")
 	}
-	arg1, arg2, err := parseArgs(tokens[2:])
-	if err != nil {
-		return nil, err
-	}
 
-	if tokens[5] != ")" {
-		return nil, fmt.Errorf("invalid op: no close paren %v", tokens[2])
+	if !isConditional(op) {
+		var err error
+		arg1, arg2, err := parseArgs(tokens[2:])
+		if err != nil {
+			return nil, err
+		}
+		if tokens[5] != ")" {
+			return nil, fmt.Errorf("invalid op: no close paren %v", tokens[2])
+		}
+		return &Op{op, arg1, arg2}, nil
+	} else {
+		if tokens[2] != ")" {
+			return nil, fmt.Errorf("invalid op: no close paren %v", tokens[2])
+		}
+		return &Op{op, 0, 0}, nil
 	}
-
-	return &Op{op, arg1, arg2}, nil
 
 }
 
@@ -121,8 +134,9 @@ func parseArgs(tokens []string) (int, int, error) {
 
 func part1(sections []string) {
 	ops := Stack{}
+	var pattern = regexp.MustCompile(`(mul|\(|\)|\d+|,){1}`)
 	for _, section := range sections {
-		parse(tokenize(section), &ops)
+		parse(tokenize(section, pattern), &ops)
 	}
 	sum := 0
 	for _, op := range ops {
@@ -132,7 +146,23 @@ func part1(sections []string) {
 }
 
 func part2(sections []string) {
-
+	ops := Stack{}
+	var pattern = regexp.MustCompile(`(don't|do|mul|\(|\)|\d+|,){1}`)
+	enabled := true
+	for _, section := range sections {
+		parse(tokenize(section, pattern), &ops)
+	}
+	sum := 0
+	for _, op := range ops {
+		if op.op == "mul" && enabled {
+			sum += (op.x * op.y)
+		} else if op.op == "do" {
+			enabled = true
+		} else if op.op == "don't" {
+			enabled = false
+		}
+	}
+	fmt.Printf("%v\n", sum)
 }
 func main() {
 
