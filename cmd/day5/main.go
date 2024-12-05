@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -14,12 +15,9 @@ func check(err error) {
 	}
 }
 
-const AFTER = 1
-const BEFORE = -1
-
 type Pages []int
 
-func (p Pages) find(page int, i int, dir int) bool {
+func (p Pages) find(page int, i int) bool {
 	if i < 0 || i >= len(p) {
 		return false
 	}
@@ -28,63 +26,79 @@ func (p Pages) find(page int, i int, dir int) bool {
 		return true
 	}
 
-	return p.find(page, i+dir, dir)
+	return p.find(page, i-1)
 }
 
-func part1(first Rules, last Rules, updates []Pages) {
-	fmt.Printf("%v\n", first)
-	fmt.Printf("%v\n", last)
-	fmt.Printf("%v\n", updates)
-
-	correct := []Pages{}
+func validateUpdates(first Rules, updates []Pages, correct bool) []Pages {
+	found := []Pages{}
 	for _, pages := range updates {
 		good := true
 		for i, p := range pages {
-			after, ok := first[p]
-			if ok {
+			if after, ok := first[p]; ok {
 				for _, rule := range after {
-					if pages.find(rule, i, BEFORE) {
-						good = false
-					}
-				}
-			}
-
-			before, ok := last[p]
-			if ok {
-				for _, rule := range before {
-					if pages.find(rule, i, AFTER) {
+					if pages.find(rule, i) {
 						good = false
 					}
 				}
 			}
 		}
 
-		if good {
-			correct = append(correct, pages)
+		if good && correct {
+			found = append(found, pages)
+		}
+
+		if !good && !correct {
+			found = append(found, pages)
 		}
 	}
 
+	return found
+}
+
+func part1(first Rules, updates []Pages) {
+
+	found := validateUpdates(first, updates, true)
 	sum := 0
-	for _, c := range correct {
+	for _, c := range found {
 		sum += c[len(c)/2]
 	}
-
-	fmt.Printf("%v\n", correct)
 	fmt.Printf("%v\n", sum)
 
 }
 
 func part2(first Rules, last Rules, updates []Pages) {
+	fmt.Println()
+	found := validateUpdates(first, updates, false)
+	for _, page := range found {
+		slices.SortStableFunc(page, func(a, b int) int {
+			if after, ok := first[a]; ok {
+				if slices.Contains(after, b) {
+					return 1
+				}
+			}
+			if before, ok := last[a]; ok {
+				if slices.Contains(before, b) {
+					return -1
+				}
+			}
+			return 0
+		})
+	}
+	sum := 0
+	for _, c := range found {
+		sum += c[len(c)/2]
+	}
 
+	fmt.Printf("%v\n", sum)
 }
 
 type Rules map[int][]int
 
-func (r *Rules) Load(key int, val int) {
-	if existing, ok := (*r)[key]; ok {
-		(*r)[key] = append(existing, val)
+func (r Rules) Load(key int, val int) {
+	if existing, ok := r[key]; ok {
+		r[key] = append(existing, val)
 	} else {
-		(*r)[key] = []int{val}
+		r[key] = []int{val}
 	}
 }
 func main() {
@@ -122,6 +136,6 @@ func main() {
 		}
 		updates = append(updates, pages)
 	}
-	part1(first, last, updates)
+	part1(first, updates)
 	part2(first, last, updates)
 }
