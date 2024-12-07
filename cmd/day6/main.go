@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
+	"sync"
 )
 
 func check(err error) {
@@ -19,6 +21,12 @@ func (m *NotFound) Error() string {
 	return "Not Found"
 }
 
+type Loop struct{}
+
+func (m *Loop) Error() string {
+	return "Infinite Loop"
+}
+
 type Direction int
 
 const (
@@ -30,7 +38,12 @@ const (
 
 var man = []rune{'<', '>', '^', 'v'}
 
-type Map [][]rune
+type Position struct {
+	val     rune
+	history []Direction
+}
+
+type Map [][]Position
 
 func direction(m rune) (Direction, error) {
 	switch m {
@@ -77,10 +90,19 @@ func (d Direction) turn() Direction {
 	return 0
 }
 
+func (m Map) clone() Map {
+	newMap := make(Map, len(m))
+	for i, row := range m {
+		newMap[i] = make([]Position, len(row))
+		copy(newMap[i], row)
+	}
+	return newMap
+}
+
 func (m Map) whereMan() (x int, y int) {
 	for i, row := range m {
 		for j, col := range row {
-			if slices.Contains(man, col) {
+			if slices.Contains(man, col.val) {
 				return j, i
 			}
 		}
@@ -93,36 +115,53 @@ func (m Map) boundsCheck(x int, y int) bool {
 	return x < 0 || x >= len(m[0]) || y < 0 || y >= len(m)
 }
 
-func (m Map) move(x int, y int, dir Direction) {
-	fmt.Printf("Man at (%v,%v) moving in %v\n", x, y, dir)
+func (m Map) move(x int, y int, dir Direction) error {
+	// fmt.Printf("Man at (%v,%v) moving in %v\n", x, y, dir)
 	if m.boundsCheck(x, y) {
-		return
+		return nil
 	}
 
-	m[y][x] = 'X'
+	if slices.Contains(m[y][x].history, dir) {
+		return &Loop{}
+	}
+
+	m[y][x].val = 'X'
+	m[y][x].history = append(m[y][x].history, dir)
 	dx, dy := dir.delta()
 	if m.boundsCheck(x+dx, y+dy) {
-		return
+		return nil
 	}
-	if m[y+dy][x+dx] == '#' {
-		fmt.Println("Turning")
-		m.move(x, y, dir.turn())
+	lookAhead := m[y+dy][x+dx].val
+	if lookAhead == '#' || lookAhead == 'O' {
+		// fmt.Println("Turning")
+		return m.move(x, y, dir.turn())
 	} else {
-		m.move(x+dx, y+dy, dir)
+		return m.move(x+dx, y+dy, dir)
 	}
 
 }
 
+func (m Map) String() string {
+	var b strings.Builder
+	for _, row := range m {
+		for _, pos := range row {
+			fmt.Fprintf(&b, "%v", string(pos.val))
+		}
+		fmt.Fprintln(&b)
+	}
+	return b.String()
+}
+
 func part1(mapp Map) {
 	x, y := mapp.whereMan()
-	d, err := direction(mapp[y][x])
+	d, err := direction(mapp[y][x].val)
 	check(err)
 	mapp.move(x, y, d)
 
 	sum := 0
 	for _, row := range mapp {
 		for _, space := range row {
-			if space == 'X' {
+			if space.val == 'X' {
 				sum += 1
 			}
 		}
@@ -130,7 +169,46 @@ func part1(mapp Map) {
 	fmt.Printf("%v\n", sum)
 }
 
-func part2(mapp [][]rune) {
+func part2(mapp Map) {
+	x, y := mapp.whereMan()
+	d, err := direction(mapp[y][x].val)
+	check(err)
+
+	loops := make(chan int, len(mapp)*len(mapp[0]))
+	var wg sync.WaitGroup
+	for row := range len(mapp) {
+		for pos := range len(mapp[0]) {
+			if row == y && pos == x {
+				continue
+			}
+
+			if mapp[y][x].val == '#' {
+				continue
+			}
+
+			instance := mapp.clone()
+			instance[row][pos].val = 'O'
+
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				err := instance.move(x, y, d)
+
+				if err != nil {
+					loops <- 1
+				}
+			}()
+
+		}
+	}
+
+	wg.Wait()
+	close(loops)
+	count := 0
+	for range loops {
+		count++
+	}
+	fmt.Printf("%v\n", count)
 
 }
 func main() {
@@ -143,12 +221,12 @@ func main() {
 	mapp := Map{}
 	for scanner.Scan() {
 		line := scanner.Text()
-		row := make([]rune, len(line))
+		row := make([]Position, len(line))
 		for i, c := range line {
-			row[i] = c
+			row[i] = Position{val: c, history: []Direction{}}
 		}
 		mapp = append(mapp, row)
 	}
-	part1(mapp)
-	part2(mapp)
+	part1(mapp.clone())
+	part2(mapp.clone())
 }
